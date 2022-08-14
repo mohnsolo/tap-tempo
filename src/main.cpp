@@ -1,6 +1,12 @@
+#include <Arduino.h>
 #include <Bounce2.h>    // Bounce2 v2.53 by Thomas O Fredericks https://github.com/thomasfredericks/Bounce2
 #include <SPI.h>        // Arduino SPI library
 #include <Encoder.h>    // Encoder v1.4.1 by Paul Stoffregen http://www.pjrc.com/teensy/td_libs_Encoder.html
+
+//#define TIMING_LED   // uses pin 5 as an indicator that tap timing is underway
+
+// Function declarations
+void digitalPotWrite(byte channel, byte value);
 
 /*
  * fifo[3]
@@ -10,9 +16,16 @@
 
 const byte ss_pin = 10;    // set pin 10 as the slave select for the digital pot:
 const byte tap_pin = 4;   // tap tempo button
+#ifdef TIMING_LED
 const byte led_pin = 5;   // timing led
+#endif
 const byte div_pin = 6;   // divisions button
 const byte lfo_pin = 7;   // lfo on/off switch
+const byte enca_pin = 2;  // Interrupt pin on Arduino Uno
+const byte encb_pin = 3;  // Interrupt pin on Arduino Uno
+const byte div_led1_pin = 9; 
+const byte div_led2_pin = 8;
+const byte div_led3_pin = 5;
 Bounce bTap = Bounce(); // Instantiate a Bounce object for tap button
 Bounce bDiv = Bounce();   // bounce object for divisions button
 
@@ -24,9 +37,10 @@ int times = 0;
 unsigned long maxTime = 1200;
 boolean timing = false;
 
-float division = 1;
+float division;
 const byte div_array_max = 3;
 float div_array[div_array_max] = {1.0, 1.5, 3.0};
+byte div_led_array[div_array_max] = {div_led1_pin, div_led2_pin, div_led3_pin};
 byte div_index = 0;
 
 boolean lfo_active = false;
@@ -50,7 +64,7 @@ byte potData = 127;
 word potMax = 255;    // max value of digital pot
 boolean newPotVal = false;      // true if ready to write new value after 4 taps
 
-Encoder myEnc(2,3);
+Encoder myEnc(enca_pin,encb_pin);
 long oldPosition  = 0;
 long newPosition;
 long diff;
@@ -62,8 +76,19 @@ void setup() {
   bDiv.interval(5);
 
   pinMode(lfo_pin,INPUT_PULLUP);  
+  #ifdef TIMING_LED
   pinMode(led_pin,OUTPUT); // Setup the LED
+  #endif
+  pinMode(div_led1_pin, OUTPUT);
+  pinMode(div_led2_pin, OUTPUT);
+  pinMode(div_led3_pin, OUTPUT);
+  digitalWrite(div_led1_pin, 0);
+  digitalWrite(div_led2_pin, 0);
+  digitalWrite(div_led3_pin, 0);
   
+  division = div_array[div_index];  // initialize division
+  digitalWrite(div_led_array[div_index], 1);
+
   // set the ss_pin as an output:
   pinMode(ss_pin, OUTPUT);
   // initialize SPI:
@@ -82,9 +107,11 @@ void loop() {
 
   if (bDiv.fell())
   {
+    digitalWrite(div_led_array[div_index], 0);    // turn off LED of old division (before we increment div_index)
     if (++div_index >= div_array_max)
       div_index = 0;
     division = div_array[div_index];
+    digitalWrite(div_led_array[div_index], 1);    // turn on LED of new division
   }
   
   if (bTap.fell() && !timing)       // First switch press
@@ -94,7 +121,9 @@ void loop() {
     times = 0;
     time1 = 0; time2 = 0; time3 = 0;
     newPotVal = false;
+    #ifdef TIMING_LED
     digitalWrite(led_pin, 1);
+    #endif
     bTap.update();   //ensures new debounce reading for second press
   }
 
@@ -105,7 +134,9 @@ void loop() {
     if (timeInterval > maxTime)     // don't count this time interval and end timing
     {
       timing = false;
+      #ifdef TIMING_LED
       digitalWrite(led_pin, 0);
+      #endif
       if (newPotVal) digitalPotWrite(0,potData);
     }
     else if (bTap.fell())         // All other switch presses after the first
