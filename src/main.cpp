@@ -4,6 +4,7 @@
 #include <Encoder.h>    // Encoder v1.4.1 by Paul Stoffregen http://www.pjrc.com/teensy/td_libs_Encoder.html
 
 //#define TIMING_LED   // uses pin 5 as an indicator that tap timing is underway
+//#define SERIAL_CALIB  // outputs result of calibration
 
 // Function declarations
 void digitalPotWrite(byte channel, byte value);
@@ -26,6 +27,8 @@ const byte encb_pin = 3;  // Interrupt pin on Arduino Uno
 const byte div_led1_pin = 9; 
 const byte div_led2_pin = 8;
 const byte div_led3_pin = 5;
+const byte fck_div_pin = 12;  // output of PT2399 pin 5 after division of 684000
+
 Bounce bTap = Bounce(); // Instantiate a Bounce object for tap button
 Bounce bDiv = Bounce();   // bounce object for divisions button
 
@@ -34,7 +37,7 @@ unsigned long currentTime;
 unsigned long timeInterval = 30;
 unsigned long time1, time2, time3;
 int times = 0;
-unsigned long maxTime = 1200;
+unsigned long maxTime = 1000;   // was 1200
 boolean timing = false;
 
 float division;
@@ -48,21 +51,27 @@ byte lfo_amp = 5;     // amplitude of lfo
 byte lfo_value = 0;
 word lfo_speed_pot_set;   // 0-1023 analog value representing desired lfo speed
 word lfo_speed_pot_new;
-word lfo_max_time = 500;    // max rise and fall time in msn
+word lfo_max_time = 500;    // max rise and fall time in ms
 word lfo_min_time = 50;    // min rise and fall time in ms
 word lfo_set_time = 100;    // setting of rise and fall time in ms (full period is 2x this value)
 word lfo_step_time = lfo_set_time / lfo_amp;       // time between lfo updates
 unsigned long lfo_start_time;
 boolean lfo_rising = 1;     // 1 = rising, 0 = falling
 
+// PT2399 resistance (kOhm) from time (ms): R = t*0.0885 - 2.7
+float slope = 0.0885;
+float yint = -2.7;
+
 float Rset = 0.0;
 float RcalH = 43.1;
-float RcalL = 0.136;            // is this too small to matter?
-float Roffset = 1.0 - RcalL;    // should this be addition?
+float Roffset = 1.0;
+//float RcalL = 0.136;            // is this too small to matter?
+//float Roffset = 1.0 - RcalL;    // should this be addition?
 float Rmax = RcalH;    // in kohms
 byte potData = 127;
 word potMax = 255;    // max value of digital pot
 boolean newPotVal = false;      // true if ready to write new value after 4 taps
+const byte pot_ch = 0; 
 
 Encoder myEnc(enca_pin,encb_pin);
 long oldPosition  = 0;
@@ -93,9 +102,28 @@ void setup() {
   pinMode(ss_pin, OUTPUT);
   // initialize SPI:
   SPI.begin();
-  //Serial.begin(9600);
-  digitalPotWrite(0,potData);
 
+  // Calibrate digital pot
+  pinMode(fck_div_pin, INPUT);
+  digitalPotWrite(pot_ch,255);
+  delay(500);
+  while(digitalRead(fck_div_pin) == 0);   // wait for pin to be low
+  while(digitalRead(fck_div_pin) == 1);   // rising edge
+  startTime = millis();
+  while(digitalRead(fck_div_pin) == 0);   // wait for pin to be low
+  while(digitalRead(fck_div_pin) == 1);   // rising edge
+  currentTime = millis();
+  timeInterval = currentTime - startTime;
+  Rmax = (float)(timeInterval) * slope + yint - Roffset;
+
+  #ifdef SERIAL_CALIB
+  Serial.begin(9600);
+  Serial.println(timeInterval);
+  Serial.println(Rmax, 3);
+  Serial.end();
+  #endif
+
+  digitalPotWrite(pot_ch,potData);
   newPosition = myEnc.read();
 }
 
@@ -137,7 +165,7 @@ void loop() {
       #ifdef TIMING_LED
       digitalWrite(led_pin, 0);
       #endif
-      if (newPotVal) digitalPotWrite(0,potData);
+      if (newPotVal) digitalPotWrite(pot_ch,potData);
     }
     else if (bTap.fell())         // All other switch presses after the first
     {
@@ -149,10 +177,12 @@ void loop() {
       if (times >= 3)
       {
         timeInterval = (time1 + time2 + time3) / times / division;
-        if (timeInterval < 170)
+        Rset = (float)timeInterval * slope + yint;
+/*      if (timeInterval < 170)
           Rset = (float)timeInterval / 11.83 - 2.355;
         else
           Rset = (float)timeInterval / 11.03 - 3.468;
+*/
         Rset = Rset - Roffset;
         if (Rset < 0.0) Rset = 0;
         if (Rset > Rmax) Rset = Rmax;
@@ -179,7 +209,7 @@ void loop() {
     {
       potData += diff;
     }
-    digitalPotWrite(0,potData);
+    digitalPotWrite(pot_ch,potData);
     oldPosition = newPosition;
   }
 
@@ -214,14 +244,14 @@ void loop() {
       // Check for overflow
       if (potMax - potData >= lfo_value)
       {
-        digitalPotWrite(0,potData + lfo_value);
+        digitalPotWrite(pot_ch,potData + lfo_value);
       }
     }
   }
 
   // read the input on analog pin 0:
   //unsigned int sensorValue = analogRead(A0);
-  //digitalPotWrite(0, (sensorValue >> 2));   // convert 10-bit sensorValue to 8-bit
+  //digitalPotWrite(pot_ch, (sensorValue >> 2));   // convert 10-bit sensorValue to 8-bit
   //delay(10);
 }
 
