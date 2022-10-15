@@ -225,7 +225,7 @@ void loop() {
   }
 
   // LFO
-  if (digitalRead(lfo_pin))
+  if (digitalRead(lfo_pin) == 0)
   {
     // Check if it's time to update lfo
     if (currentTime - lfo_start_time >= lfo_step_time)
