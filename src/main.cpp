@@ -10,12 +10,6 @@
 // Function declarations
 void digitalPotWrite(byte channel, byte value);
 
-/*
- * fifo[3]
- * validTimes: number of valid time intervals in the fifo. The rest would be ignored
- *  when averaging. 
- */
-
 const byte ss_pin = 10;    // set pin 10 as the slave select for the digital pot:
 const byte tap_pin = 4;   // tap tempo button
 #ifdef TIMING_LED
@@ -38,9 +32,10 @@ Bounce bDiv = Bounce();   // bounce object for divisions button
 unsigned long startTime;
 unsigned long currentTime;
 unsigned long timeInterval = 30;
-unsigned long time1, time2, time3;
-int times = 0;
-unsigned long maxTime = 1000;   // was 1200
+const byte num_valid_times = 3;     // number of taps - 1
+unsigned long measured_times[num_valid_times] = {0};
+byte times = 0;
+unsigned long maxTime = 750; 
 boolean timing = false;
 boolean rate_led_state = false;
 
@@ -64,15 +59,14 @@ boolean lfo_rising = 1;     // 1 = rising, 0 = falling
 
 // PT2399 approximate resistance R (kOhm) for delay time t (ms): 
 // R = t * 0.0885 - 2.7
+// All resistor values in kOhm
 float slope = 0.0885;
 float yint = -2.7;
 
 float Rset = 0.0;
 float RcalH = 43.1;   // measured from actual MCP41050 (calibration routine is a far better way than this)
 float Roffset = 1.0;
-//float RcalL = 0.136;            // is this too small to matter?
-//float Roffset = 1.0 - RcalL;    // should this be addition?
-float Rmax = 50;    // in kohms
+float Rmax = 50; 
 byte potData = 127;
 word potMax = 255;    // max value of digital pot
 boolean newPotVal = false;      // true if ready to write new value after 4 taps
@@ -159,7 +153,10 @@ void loop() {
     startTime = currentTime;
     timing = true;
     times = 0;
-    time1 = 0; time2 = 0; time3 = 0;
+    for (int i = 0; i < num_valid_times; i++)
+    {
+      measured_times[i] = 0;
+    }
     newPotVal = false;
 #ifdef TIMING_LED
     digitalWrite(timing_led_pin, 1);
@@ -182,19 +179,21 @@ void loop() {
     else if (bTap.fell())         // All other switch presses after the first
     {
       startTime = currentTime;
-      if (times < 3) times++;
-      time3 = time2;
-      time2 = time1;
-      time1 = timeInterval;
-      if (times >= 3)
+      if (times < num_valid_times) times++;
+      for (int i = num_valid_times - 1; i > 0; i--)
+      { 
+        measured_times[i] = measured_times[i-1];
+      } 
+      measured_times[0] = timeInterval;
+      if (times >= num_valid_times)
       {
-        timeInterval = (time1 + time2 + time3) / times / division;
+        timeInterval = 0;
+        for (int i = 0; i < num_valid_times; i++)
+        {
+          timeInterval += measured_times[i];
+        }
+        timeInterval = timeInterval / times / division;
         Rset = (float)timeInterval * slope + yint;
-/*      if (timeInterval < 170)
-          Rset = (float)timeInterval / 11.83 - 2.355;
-        else
-          Rset = (float)timeInterval / 11.03 - 3.468;
-*/
         Rset = Rset - Roffset;
         if (Rset < 0.0) Rset = 0;
         if (Rset > Rmax) Rset = Rmax;
@@ -231,13 +230,6 @@ void loop() {
     // Check if it's time to update lfo
     if (currentTime - lfo_start_time >= lfo_step_time)
     {
-      /*lfo_speed_pot_new = analogRead(A1);
-      if (lfo_speed_pot_set != lfo_speed_pot_new)
-      {
-        lfo_speed_pot_set = lfo_speed_pot_new;
-    
-        lfo_step_time = lfo_set_time / lfo_amp;
-      }*/
       if (lfo_rising)
       {
         if (++lfo_value >= lfo_amp)
@@ -260,11 +252,6 @@ void loop() {
       }
     }
   }
-
-  // read the input on analog pin 0:
-  //unsigned int sensorValue = analogRead(A0);
-  //digitalPotWrite(pot_ch, (sensorValue >> 2));   // convert 10-bit sensorValue to 8-bit
-  //delay(10);
 }
 
 void digitalPotWrite(byte channel, byte value) {
