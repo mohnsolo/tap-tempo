@@ -25,7 +25,7 @@ The MCU performs the following tasks:
 `R = t * 0.0885 - 2.7`
 3. Set the digital potentiometer to this value via SPI
 4. Check for updates to the encoder knob position and make updates to the resistance setpoint
-5. If LFO pin is high, modulate the resistance setpoint. *TODO: make LFO rate and depth controllable*
+5. If LFO pin is pulled low, modulate the resistance setpoint. *TODO: make LFO rate and depth controllable*
 
 ## Tempo Indicator
 Shown in the [schematic](tap-tempo-schematic.pdf) is a tempo indication circuit using two 4040 binary counters to divide the clock signal out of pin 5 of the PT2399 by 684,000, the result of which corresponds to the actual delay time and is fed to an LED for visual feedback. This portion of the circuit is not my own, but is originally from [this post in the diystompboxes forum.](https://www.diystompboxes.com/smfforum/index.php?topic=50185.0) To reduce circuit size, this LED could be controlled by the MCU.
